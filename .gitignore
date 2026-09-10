@@ -1,0 +1,16 @@
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# エディタ / IDE
+.vscode/
+.idea/
+*.swp
+
+# ログ・一時ファイル
+*.log
+tmp/
+
+# Claude Code（ユーザー個別設定。共有しない）
+.claude/settings.local.json
