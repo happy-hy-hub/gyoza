@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>03.gyoza V1-V3 検証ハーネス</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="gyoza検証">
+<style>
+  :root { color-scheme: light dark; --fg:#1a1a1a; --bg:#faf8f5; --line:#d8d0c4; --accent:#b56b33; }
+  @media (prefers-color-scheme: dark) { :root { --fg:#eee; --bg:#1c1a18; --line:#443c34; } }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:12px; font:15px/1.6 -apple-system,system-ui,sans-serif; color:var(--fg); background:var(--bg); }
+  h1 { font-size:17px; margin:0 0 4px; }
+  h2 { font-size:15px; margin:20px 0 6px; padding-bottom:4px; border-bottom:1px solid var(--line); }
+  .sub { font-size:12px; opacity:.7; margin:0 0 8px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  td { padding:4px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  td:first-child { white-space:nowrap; opacity:.75; }
+  td:last-child { font-family:ui-monospace,monospace; word-break:break-all; }
+  .ok { color:#2d7a2d; font-weight:600; }
+  .ng { color:#b02020; font-weight:600; }
+  button { font:inherit; padding:11px 14px; margin:4px 4px 4px 0; border:1px solid var(--line);
+           border-radius:8px; background:var(--bg); color:var(--fg); -webkit-tap-highlight-color:transparent; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+  button:disabled { opacity:.4; }
+  #log { font:12px/1.5 ui-monospace,monospace; background:rgba(128,128,128,.12);
+         border-radius:8px; padding:8px; height:220px; overflow:auto; white-space:pre-wrap; word-break:break-all; }
+  #alarm { position:fixed; inset:0; display:none; place-items:center; background:#c62828; color:#fff;
+           font-size:44px; font-weight:800; text-align:center; z-index:99; animation:fl .6s steps(1) infinite; }
+  #alarm.on { display:grid; }
+  @keyframes fl { 50% { background:#ff9800; } }
+  .note { font-size:12px; opacity:.75; margin:6px 0 0; }
+</style>
+</head>
+<body>
+
+<div id="alarm">満了<br><span style="font-size:18px;font-weight:400">タップで停止</span></div>
+
+<h1>03.gyoza — V1〜V3 検証ハーネス</h1>
+<p class="sub">これはアプリ本体ではない。技術検証専用のページである。<br>
+必ず<strong>ホーム画面に追加してから、そのアイコンで起動して</strong>実行すること。</p>
+
+<h2>環境</h2>
+<table id="env"></table>
+<p class="note">standalone が false のときは Safari のタブで開いている。結果が変わるので、ホーム画面から起動し直すこと。</p>
+
+<h2>機能検出</h2>
+<table id="feat"></table>
+
+<h2>V2 / V3 — Wake Lock と報知</h2>
+<p class="note">手順3の「開始」を必ず最初に押すこと。ユーザー操作を起点にしないと音は解放されない（V3-5）。</p>
+<button id="prime" class="primary">① 開始（音を解放＋Wake Lock 取得）</button><br>
+<button id="t10" disabled>② 10秒タイマー</button>
+<button id="t900" disabled>② 15分タイマー</button>
+<button id="stop" disabled>停止</button><br>
+<button id="vib">③ バイブを試す（失敗するはず）</button>
+
+<h2>V1 — ストレージ</h2>
+<button id="persist">① persist() を要求</button>
+<button id="estimate">② 容量を確認</button><br>
+<button id="dbwrite">③ IndexedDB に書く</button>
+<button id="dbread">④ 読み戻す</button>
+<p class="note">④が読めることを確認したらアプリを閉じ、<strong>8日以上あけて</strong>再度④を実行する（V1 手順5）。</p>
+
+<h2>ログ</h2>
+<button id="clear">クリア</button>
+<button id="copy">全文コピー</button>
+<div id="log"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const logEl = $('#log');
+function log(...a) {
+  const t = new Date().toTimeString().slice(0,8);
+  logEl.textContent += `[${t}] ${a.join(' ')}\n`;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+function row(tbl, k, v, cls) {
+  const tr = tbl.insertRow();
+  tr.insertCell().textContent = k;
+  const td = tr.insertCell();
+  td.textContent = v;
+  if (cls) td.className = cls;
+}
+const yn = b => b ? 'ok' : 'ng';
+
+// ---- 環境 ----
+const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+row($('#env'), 'standalone', standalone, yn(standalone));
+row($('#env'), 'User-Agent', navigator.userAgent);
+row($('#env'), '画面', `${screen.width}x${screen.height} @${devicePixelRatio}`);
+row($('#env'), 'URL', location.href);
+log('起動。standalone =', standalone);
+
+// ---- 機能検出 ----
+const has = {
+  wakeLock:     'wakeLock' in navigator,
+  audioSession: 'audioSession' in navigator,
+  vibrate:      'vibrate' in navigator,
+  storage:      'storage' in navigator,
+  persist:      'storage' in navigator && 'persist' in navigator.storage,
+  indexedDB:    'indexedDB' in window,
+  serviceWorker:'serviceWorker' in navigator,
+};
+for (const [k, v] of Object.entries(has)) row($('#feat'), k, v, yn(v));
+row($('#feat'), 'V3-1 期待値', 'vibrate は false のはず');
+row($('#feat'), 'V2-2 期待値', 'wakeLock は true / iOS 18.4 未満は取得に失敗する');
+log('機能検出:', JSON.stringify(has));
+
+// ---- V2 / V3 ----
+let ctx = null, lock = null, timer = null;
+
+async function prime() {
+  try {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    await ctx.resume();
+    log('AudioContext:', ctx.state, '/ sampleRate', ctx.sampleRate);
+  } catch (e) { log('AudioContext 失敗:', e); }
+
+  if (has.audioSession) {
+    try { navigator.audioSession.type = 'playback'; log('audioSession.type =', navigator.audioSession.type); }
+    catch (e) { log('audioSession 設定失敗:', e); }
+  } else {
+    log('audioSession なし（iOS 16 以前）。消音スイッチで鳴らない見込み');
+  }
+
+  if (has.wakeLock) {
+    try {
+      lock = await navigator.wakeLock.request('screen');
+      log('wakeLock 取得成功');
+      lock.addEventListener('release', () => log('!! wakeLock が解除された'));
+    } catch (e) { log('!! wakeLock 取得失敗:', e.name, e.message, '(iOS 18.4 未満の可能性)'); }
+  }
+  $('#t10').disabled = $('#t900').disabled = $('#stop').disabled = false;
+}
+
+function beep() {
+  if (!ctx) { log('!! ctx が無い。音は鳴らない'); return; }
+  log('発音を試行。ctx.state =', ctx.state);
+  const t0 = ctx.currentTime;
+  for (let i = 0; i < 6; i++) {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'square'; o.frequency.value = i % 2 ? 880 : 1320;
+    g.gain.setValueAtTime(0.001, t0 + i*0.35);
+    g.gain.exponentialRampToValueAtTime(0.5, t0 + i*0.35 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + i*0.35 + 0.3);
+    o.connect(g).connect(ctx.destination);
+    o.start(t0 + i*0.35); o.stop(t0 + i*0.35 + 0.32);
+  }
+}
+
+function fire() {
+  log('=== 満了 ===');
+  $('#alarm').classList.add('on');   // 視覚報知（ADR-012 / spec M-6）
+  beep();
+}
+$('#alarm').onclick = () => { $('#alarm').classList.remove('on'); log('視覚報知を停止'); };
+
+function start(sec) {
+  clearTimeout(timer);
+  const end = Date.now() + sec*1000;
+  log(`タイマー開始 ${sec}秒。満了予定 ${new Date(end).toTimeString().slice(0,8)}`);
+  timer = setTimeout(fire, sec*1000);
+}
+$('#prime').onclick = prime;
+$('#t10').onclick  = () => start(10);
+$('#t900').onclick = () => start(900);
+$('#stop').onclick = () => { clearTimeout(timer); $('#alarm').classList.remove('on'); log('停止'); };
+
+$('#vib').onclick = () => {
+  if (!has.vibrate) { log('V3-1: navigator.vibrate が存在しない → 想定どおり実装不可'); return; }
+  const r = navigator.vibrate([200,100,200]);
+  log('V3-1: vibrate() 戻り値 =', r, '（true でも実際に振動したかは体感で確認）');
+};
+
+document.addEventListener('visibilitychange', () => log('visibility →', document.visibilityState));
+window.addEventListener('pageshow', e => log('pageshow persisted =', e.persisted));
+
+// ---- V1 ----
+$('#persist').onclick = async () => {
+  try {
+    log('persisted(before) =', await navigator.storage.persisted());
+    log('persist() =', await navigator.storage.persist());
+    log('persisted(after)  =', await navigator.storage.persisted());
+  } catch (e) { log('persist 失敗:', e); }
+};
+$('#estimate').onclick = async () => {
+  try {
+    const e = await navigator.storage.estimate();
+    log('quota =', (e.quota/1048576).toFixed(1), 'MB / usage =', (e.usage/1048576).toFixed(3), 'MB');
+  } catch (e) { log('estimate 失敗:', e); }
+};
+
+function db() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('gyoza-probe', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+$('#dbwrite').onclick = async () => {
+  try {
+    const d = await db();
+    const tx = d.transaction('kv', 'readwrite');
+    const payload = { writtenAt: new Date().toISOString(), note: 'V1 probe' };
+    tx.objectStore('kv').put(payload, 'probe');
+    tx.oncomplete = () => log('IndexedDB 書込完了:', JSON.stringify(payload));
+    tx.onerror = () => log('書込失敗:', tx.error);
+  } catch (e) { log('書込失敗:', e); }
+};
+$('#dbread').onclick = async () => {
+  try {
+    const d = await db();
+    const q = d.transaction('kv').objectStore('kv').get('probe');
+    q.onsuccess = () => {
+      if (!q.result) { log('!! データが無い。消去された可能性あり'); return; }
+      const days = (Date.now() - new Date(q.result.writtenAt)) / 86400000;
+      log('読み戻し成功:', q.result.writtenAt, `（${days.toFixed(2)} 日前）`);
+    };
+    q.onerror = () => log('読出失敗:', q.error);
+  } catch (e) { log('読出失敗:', e); }
+};
+
+$('#clear').onclick = () => logEl.textContent = '';
+$('#copy').onclick = async () => {
+  try { await navigator.clipboard.writeText(logEl.textContent); log('コピーした'); }
+  catch (e) { log('コピー失敗:', e); }
+};
+</script>
+</body>
+</html>

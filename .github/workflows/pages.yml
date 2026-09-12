@@ -1,0 +1,41 @@
+name: Deploy app/ to GitHub Pages
+
+# app/ 配下だけを公開する。docs/ は要件定義の置き場所であり公開対象にしない。
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 実行中のデプロイは中断しない。キューは最新1件のみ残す。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Jekyll による加工を止める（_ 始まりのファイルが落とされるのを防ぐ）
+      - run: touch app/.nojekyll
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: app
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
